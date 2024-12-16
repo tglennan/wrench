@@ -62,7 +62,7 @@ const (
 	StatementKindDML            StatementKind = "DML"
 	StatementKindPartitionedDML StatementKind = "PartitionedDML"
 
-	MigrationKindIterativeBatchDML MigrationKind = "IterativeBatchUpdate"
+	MigrationKindIterativeBatchDML MigrationKind = "IterativeBatchDML"
 )
 
 type (
