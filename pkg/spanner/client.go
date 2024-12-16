@@ -663,7 +663,13 @@ func (c *Client) ExecuteMigrations(ctx context.Context, migrations Migrations, l
 				}
 			}
 		case StatementKindDML:
-			rowsAffected, err := c.ApplyDML(ctx, m.Statements)
+			applyDMLFunc := c.ApplyDML
+			if m.Config.MigrationKind == MigrationKindIterativeBatchDML {
+				applyDMLFunc = iterativeBatchApply(applyDMLFunc)
+			}
+
+			rowsAffected, err := applyDMLFunc(ctx, m.Statements)
+
 			if err != nil {
 				return nil, &Error{
 					Code: ErrorCodeExecuteMigrations,
@@ -1094,4 +1100,22 @@ func (c *Client) releaseMigrationLock(ctx context.Context, tableName, lockIdenti
 		return err
 	}
 	return nil
+}
+
+func iterativeBatchApply(fn func(context.Context, []string) (int64, error)) func(context.Context, []string) (int64, error) {
+	return func(ctx context.Context, statements []string) (int64, error) {
+		var totalRowsAffected int64
+		for {
+			c, err := fn(ctx, statements)
+			if err != nil {
+				return totalRowsAffected, err
+			}
+
+			if c == 0 {
+				break
+			}
+			totalRowsAffected += c
+		}
+		return totalRowsAffected, nil
+	}
 }

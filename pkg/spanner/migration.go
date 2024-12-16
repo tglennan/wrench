@@ -21,6 +21,7 @@ package spanner
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -60,10 +61,12 @@ const (
 	StatementKindDDL            StatementKind = "DDL"
 	StatementKindDML            StatementKind = "DML"
 	StatementKindPartitionedDML StatementKind = "PartitionedDML"
+
+	MigrationKindIterativeBatchDML MigrationKind = "IterativeBatchUpdate"
 )
 
 type (
-	// migration represents the parsed migration file. e.g. version_name.sql
+	// Migration represents the parsed migration file. e.g. version_name.sql
 	Migration struct {
 		// Version is the version of the migration
 		Version uint
@@ -78,11 +81,22 @@ type (
 		Statements []string
 
 		Kind StatementKind
+
+		// Config configures how the migration should be executed.
+		Config MigrationConfig
+	}
+
+	// MigrationConfig configures how the migration should be executed.
+	MigrationConfig struct {
+		// Kind defines the execution behaviour for the migration when applying.
+		MigrationKind MigrationKind
 	}
 
 	Migrations []*Migration
 
 	StatementKind string
+
+	MigrationKind string
 )
 
 func (ms Migrations) Len() int {
@@ -128,15 +142,34 @@ func LoadMigrations(dir string, toSkipSlice []uint, detectPartitionedDML bool) (
 			continue
 		}
 
-		file, err := os.ReadFile(filepath.Join(dir, f.Name()))
+		migrationPath := filepath.Join(dir, f.Name())
+		file, err := os.ReadFile(migrationPath)
 		if err != nil {
 			continue
 		}
 
 		statements := toStatements(file)
-		kind, err := inspectStatementsKind(statements, detectPartitionedDML)
+		statementKind, err := inspectStatementsKind(statements, detectPartitionedDML)
 		if err != nil {
 			return nil, err
+		}
+
+		// Auto-discover any migration-scoped JSON config file for this migration
+		var conf MigrationConfig
+		confFile, err := os.ReadFile(migrationPath + ".json")
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return nil, err
+			}
+		} else {
+			if err = json.Unmarshal(confFile, &conf); err != nil {
+				return nil, fmt.Errorf("read : %w", err)
+			}
+		}
+
+		// Validate migration-scoped config against the migration.
+		if conf.MigrationKind == MigrationKindIterativeBatchDML && statementKind != StatementKindDML {
+			return nil, fmt.Errorf("%s: migration kind %q is only supported for %s statements, got: %s", f.Name(), MigrationKindIterativeBatchDML, StatementKindDML, conf.MigrationKind)
 		}
 
 		migrations = append(migrations, &Migration{
@@ -144,7 +177,8 @@ func LoadMigrations(dir string, toSkipSlice []uint, detectPartitionedDML bool) (
 			Name:       matches[2],
 			FileName:   f.Name(),
 			Statements: statements,
-			Kind:       kind,
+			Kind:       statementKind,
+			Config:     conf,
 		})
 	}
 
