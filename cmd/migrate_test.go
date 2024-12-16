@@ -24,7 +24,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/roryq/wrench/pkg/core"
+	"github.com/tglennan/wrench/pkg/core"
 )
 
 func TestCreateMigrationFile(t *testing.T) {

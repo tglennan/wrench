@@ -33,7 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
 
-	"github.com/roryq/wrench/pkg/spannerz"
+	"github.com/tglennan/wrench/pkg/spannerz"
 )
 
 const (

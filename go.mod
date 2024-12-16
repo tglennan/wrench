@@ -1,4 +1,4 @@
-module github.com/roryq/wrench
+module github.com/tglennan/wrench
 
 require (
 	cloud.google.com/go v0.116.0

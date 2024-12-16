@@ -10,7 +10,7 @@ import (
 	"sort"
 	"text/tabwriter"
 
-	"github.com/roryq/wrench/pkg/spanner"
+	"github.com/tglennan/wrench/pkg/spanner"
 )
 
 // CreateMigrationFile creates a new migration file in the given directory. The name should be alphanumeric with underscores

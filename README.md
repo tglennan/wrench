@@ -39,7 +39,7 @@ ___
 With go 1.22 or higher:
 
 ```shell
-go install github.com/roryq/wrench@latest
+go install github.com/tglennan/wrench@latest
 ```
 
 ## Usage

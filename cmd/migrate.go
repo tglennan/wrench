@@ -32,8 +32,8 @@ import (
 	"github.com/kennygrant/sanitize"
 	"github.com/spf13/cobra"
 
-	"github.com/roryq/wrench/pkg/core"
-	"github.com/roryq/wrench/pkg/spanner"
+	"github.com/tglennan/wrench/pkg/core"
+	"github.com/tglennan/wrench/pkg/spanner"
 )
 
 const (

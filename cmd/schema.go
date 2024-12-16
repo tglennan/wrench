@@ -11,7 +11,7 @@ import (
 	"github.com/ory/dockertest/v3/docker"
 	"github.com/spf13/cobra"
 
-	"github.com/roryq/wrench/internal/graceful"
+	"github.com/tglennan/wrench/internal/graceful"
 )
 
 var gracefulSchemaTasks = graceful.OnShutdown{}

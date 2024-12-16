@@ -29,7 +29,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/roryq/wrench/pkg/spanner"
+	"github.com/tglennan/wrench/pkg/spanner"
 
 	"github.com/spf13/cobra"
 )

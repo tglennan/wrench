@@ -33,8 +33,8 @@ import (
 	"github.com/googleapis/gax-go/v2"
 	"github.com/sourcegraph/conc/pool"
 
-	"github.com/roryq/wrench/pkg/spannerz"
-	"github.com/roryq/wrench/pkg/xregexp"
+	"github.com/tglennan/wrench/pkg/spannerz"
+	"github.com/tglennan/wrench/pkg/xregexp"
 
 	"google.golang.org/grpc/codes"
 
@@ -45,7 +45,7 @@ import (
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
-	"github.com/roryq/wrench/pkg/spanner/dataloader"
+	"github.com/tglennan/wrench/pkg/spanner/dataloader"
 )
 
 const (
