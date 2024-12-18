@@ -21,7 +21,6 @@ package spanner
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -62,7 +61,7 @@ const (
 	StatementKindDML            StatementKind = "DML"
 	StatementKindPartitionedDML StatementKind = "PartitionedDML"
 
-	MigrationKindIterativeBatchDML MigrationKind = "IterativeBatchDML"
+	MigrationKindFixedPointIterationDML MigrationKind = "FixedPointIterationDML"
 )
 
 type (
@@ -82,14 +81,17 @@ type (
 
 		Kind StatementKind
 
-		// Config configures how the migration should be executed.
-		Config MigrationConfig
+		// Directives defines config scoped to a single migration.
+		Directives MigrationDirectives
 	}
 
-	// MigrationConfig configures how the migration should be executed.
-	MigrationConfig struct {
+	// MigrationDirectives configures how the migration should be executed.
+	MigrationDirectives struct {
 		// Kind defines the execution behaviour for the migration when applying.
 		MigrationKind MigrationKind
+		// Kind defines the execution concurrency. Only applicable when
+		// MigrationKind is MigrationKindFixedPointIterationDML.
+		Concurrency int
 	}
 
 	Migrations []*Migration
@@ -154,22 +156,23 @@ func LoadMigrations(dir string, toSkipSlice []uint, detectPartitionedDML bool) (
 			return nil, err
 		}
 
-		// Auto-discover any migration-scoped JSON config file for this migration
-		var conf MigrationConfig
-		confFile, err := os.ReadFile(migrationPath + ".json")
+		// Parse any migration-scoped directives for the migration
+		directives, err := parseMigrationDirectives(string(file))
 		if err != nil {
-			if !os.IsNotExist(err) {
-				return nil, err
-			}
-		} else {
-			if err = json.Unmarshal(confFile, &conf); err != nil {
-				return nil, fmt.Errorf("read : %w", err)
-			}
+			return nil, err
 		}
 
 		// Validate migration-scoped config against the migration.
-		if conf.MigrationKind == MigrationKindIterativeBatchDML && statementKind != StatementKindDML {
-			return nil, fmt.Errorf("%s: migration kind %q is only supported for %s statements, got: %s", f.Name(), MigrationKindIterativeBatchDML, StatementKindDML, conf.MigrationKind)
+		if directives.MigrationKind != "" {
+			return nil, fmt.Errorf("%s: unimplemented: migration kind %s", f.Name(), directives.MigrationKind)
+			//switch directives.MigrationKind {
+			//case MigrationKindFixedPointIterationDML:
+			//	if statementKind != StatementKindDML {
+			//		return nil, fmt.Errorf("%s: migration kind %q is only supported for %s statements, got: %s", f.Name(), MigrationKindFixedPointIterationDML, StatementKindDML, directives.MigrationKind)
+			//	}
+			//default:
+			//	return nil, fmt.Errorf("%s: invalid migration kind %q", f.Name(), directives.MigrationKind)
+			//}
 		}
 
 		migrations = append(migrations, &Migration{
@@ -178,7 +181,7 @@ func LoadMigrations(dir string, toSkipSlice []uint, detectPartitionedDML bool) (
 			FileName:   f.Name(),
 			Statements: statements,
 			Kind:       statementKind,
-			Config:     conf,
+			Directives: directives,
 		})
 	}
 
@@ -284,4 +287,90 @@ func isPartitionedDMLOnly(statement string) bool {
 
 func isDMLAny(statement string) bool {
 	return dmlAnyRegex.Match([]byte(statement))
+}
+
+// parseMigrationDirectives extracts migration directives in the format
+// @wrench.{key}={value} from the migration preamble.
+func parseMigrationDirectives(migration string) (MigrationDirectives, error) {
+	const (
+		directiveKeyPrefix = "@wrench."
+		migrationKindKey   = "migrationKind"
+		concurrencyKey     = "concurrency"
+	)
+
+	var directives MigrationDirectives
+	for _, line := range extractPreamble(migration) {
+		if !strings.HasPrefix(line, directiveKeyPrefix) {
+			continue
+		}
+
+		qualifiedKey, value, found := strings.Cut(line, "=")
+		if !found {
+			return MigrationDirectives{}, fmt.Errorf("directive must be in format @wrench.{key}={value}, got: %s", line)
+		}
+		key := strings.TrimPrefix(qualifiedKey, directiveKeyPrefix)
+		value, _, _ = strings.Cut(value, " ")
+
+		// Only two directives are supported at the moment so keeping
+		// unmarshalling simple here rather than adding a dependency.
+		switch key {
+		case migrationKindKey:
+			directives.MigrationKind = MigrationKind(value)
+		case concurrencyKey:
+			concurrency, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return MigrationDirectives{}, fmt.Errorf("invalid concurrency value: %w", err)
+			}
+			directives.Concurrency = int(concurrency)
+		default:
+			return MigrationDirectives{}, fmt.Errorf("unsupported directive: %s", key)
+		}
+	}
+	return directives, nil
+}
+
+// extractPreamble returns all comments from the start of a migration file,
+// until the first non-empty non-comment line is encountered.
+func extractPreamble(migration string) []string {
+	const (
+		blockCommentStart = "/*"
+		blockCommentEnd   = "*/"
+		lineCommentPrefix = "--"
+	)
+
+	var comments []string
+	var blockComment bool
+	for _, line := range strings.Split(migration, "\n") {
+		// Skip empty lines.
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Look for block or line comment start.
+		if !blockComment {
+			if strings.HasPrefix(line, blockCommentStart) {
+				blockComment = true
+				_, line, _ = strings.Cut(line, blockCommentStart)
+			} else if strings.HasPrefix(line, lineCommentPrefix) {
+				line = strings.TrimPrefix(line, lineCommentPrefix)
+			} else {
+				// Not in a block comment or line comment, and the line is not
+				// empty. Preamble is over.
+				break
+			}
+		}
+
+		// Look for block comment exit.
+		if blockComment && strings.Contains(line, blockCommentEnd) {
+			line, _, _ = strings.Cut(line, blockCommentEnd)
+			blockComment = false
+		}
+
+		// Capture non-empty comment lines
+		if line = strings.TrimSpace(line); line != "" {
+			comments = append(comments, line)
+		}
+	}
+	return comments
 }

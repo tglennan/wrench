@@ -664,8 +664,8 @@ func (c *Client) ExecuteMigrations(ctx context.Context, migrations Migrations, l
 			}
 		case StatementKindDML:
 			applyDMLFunc := c.ApplyDML
-			if m.Config.MigrationKind == MigrationKindIterativeBatchDML {
-				applyDMLFunc = iterativeBatchApply(applyDMLFunc)
+			if m.Directives.MigrationKind == MigrationKindFixedPointIterationDML {
+				applyDMLFunc = fixedPointIterativeApply(applyDMLFunc, m.Directives.Concurrency)
 			}
 
 			rowsAffected, err := applyDMLFunc(ctx, m.Statements)
@@ -1102,20 +1102,32 @@ func (c *Client) releaseMigrationLock(ctx context.Context, tableName, lockIdenti
 	return nil
 }
 
-func iterativeBatchApply(fn func(context.Context, []string) (int64, error)) func(context.Context, []string) (int64, error) {
+func fixedPointIterativeApply(fn func(context.Context, []string) (int64, error), concurrency int) func(context.Context, []string) (int64, error) {
 	return func(ctx context.Context, statements []string) (int64, error) {
-		var totalRowsAffected int64
-		for {
-			c, err := fn(ctx, statements)
-			if err != nil {
-				return totalRowsAffected, err
-			}
+		concurrency = max(concurrency, 1)
+		p := pool.New().WithMaxGoroutines(concurrency).WithErrors()
 
-			if c == 0 {
-				break
-			}
-			totalRowsAffected += c
+		// Apply each statement in the migration in a separate transaction.
+		var totalRowCount atomic.Int64
+		for _, statement := range statements {
+			p.Go(func() error {
+				for {
+					rowCount, err := fn(ctx, []string{statement})
+					if err != nil {
+						return err
+					}
+
+					if rowCount == 0 {
+						return nil
+					}
+					totalRowCount.Add(rowCount)
+				}
+			})
 		}
-		return totalRowsAffected, nil
+
+		if err := p.Wait(); err != nil {
+			return 0, err
+		}
+		return totalRowCount.Load(), nil
 	}
 }
